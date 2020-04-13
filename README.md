@@ -2,7 +2,7 @@
 
 参考：[Redis-Code](https://github.com/linyiqun/Redis-Code)
 
-建议看下官方的[README](./README - Original.md)文档
+建议看下官方的[README](./README-Original.md)文档
 
 当前进度如下：
 
@@ -11,4 +11,3 @@
   [anet.c](./src/anet.c)
 
 - 已完成：
-
