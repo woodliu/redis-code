@@ -64,7 +64,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
     /* Set the socket blocking (if non_block is zero) or non-blocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
-    // 获取描述符的标识，可能值为O_RDONLY|O_WRONLY|O_RDWR|O_APPEND|O_NONBLOCK|O_SYNC等，参见http://man7.org/linux/man-pages/man2/open.2.html
+    // 获取描述符的标识，可能值为O_RDONLY|O_WRONLY|O_RDWR|O_APPEND|O_NONBLOCK|O_SYNC等，参见：http://man7.org/linux/man-pages/man2/open.2.html
     if ((flags = fcntl(fd, F_GETFL)) == -1) {
         anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
         return ANET_ERR;
@@ -148,6 +148,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
 static int anetSetTcpNoDelay(char *err, int fd, int val)
 {
+    // 设置是否取消Nagle算法，Nagle算法可以增加网络利用率，但可能降低交互效率
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
@@ -156,11 +157,13 @@ static int anetSetTcpNoDelay(char *err, int fd, int val)
     return ANET_OK;
 }
 
+// 设置使用Nagle算法
 int anetEnableTcpNoDelay(char *err, int fd)
 {
     return anetSetTcpNoDelay(err, fd, 1);
 }
 
+// 设置取消Nagle算法
 int anetDisableTcpNoDelay(char *err, int fd)
 {
     return anetSetTcpNoDelay(err, fd, 0);
@@ -169,6 +172,7 @@ int anetDisableTcpNoDelay(char *err, int fd)
 
 int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
+    // 设置socket发送缓存区大小，对应内核参数net.ipv4.tcp_wmem
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
     {
         anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
@@ -177,6 +181,8 @@ int anetSetSendBuffer(char *err, int fd, int buffsize)
     return ANET_OK;
 }
 
+// 与anetKeepAlive实现类似，但直接将保活定时器超时时间设置为1s，即心跳1s之后直接发送保活探测报文。该接口可以在高并发时提高效率
+// 但不必要的探测报文也可能导致网络利用率低
 int anetTcpKeepAlive(char *err, int fd)
 {
     int yes = 1;
@@ -187,8 +193,10 @@ int anetTcpKeepAlive(char *err, int fd)
     return ANET_OK;
 }
 
+
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
+// 设置socket发送的超时时间，超时后直接返回发送的数据量或错误，适用于非阻塞socket。如果ms为0则表示永不超时。参见：http://man7.org/linux/man-pages/man7/socket.7.html
 int anetSendTimeout(char *err, int fd, long long ms) {
     struct timeval tv;
 
@@ -203,6 +211,7 @@ int anetSendTimeout(char *err, int fd, long long ms) {
 
 /* Set the socket receive timeout (SO_RCVTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
+// 与anetSendTimeout类似，设置socket的接收超时时间
 int anetRecvTimeout(char *err, int fd, long long ms) {
     struct timeval tv;
 
@@ -222,6 +231,7 @@ int anetRecvTimeout(char *err, int fd, long long ms) {
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
  * into a validating / normalizing function. */
+ // 使用getaddrinfo通过入参的host获取IPv4或IPv6的地址，并保存在出参ipbuf中
 int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
                        int flags)
 {
@@ -229,6 +239,7 @@ int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     int rv;
 
     memset(&hints,0,sizeof(hints));
+    // 如果flags设置了ANET_IP_ONLY，则host只能是数字的地址字符串，不能是域名，也不会使用域名解析
     if (flags & ANET_IP_ONLY) hints.ai_flags = AI_NUMERICHOST;
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
@@ -249,16 +260,19 @@ int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     return ANET_OK;
 }
 
+// host为域名的主机名解析
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
     return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_NONE);
 }
 
+// host为ip地址的主机名解析，用于校验地址有效性
 int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
     return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
 }
 
+// 设置端口复用(须在bind操作前)，防止服务器重启后因为2MSL导致服务器无法快速恢复
 static int anetSetReuseAddr(char *err, int fd) {
-    int yes = 1;
+    int yes = 1;+
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
@@ -268,6 +282,7 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
+// 创建流socket，并设置端口复用
 static int anetCreateSocket(char *err, int domain) {
     int s;
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
@@ -287,6 +302,7 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
+// 作为client执行连接
 static int anetTcpGenericConnect(char *err, const char *addr, int port,
                                  const char *source_addr, int flags)
 {
@@ -299,19 +315,24 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
+    // 获取并验证地址和端口，可能返回一组地址
     if ((rv = getaddrinfo(addr,portstr,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
+    // 从经过验证的一组地址中选择一个合适的服务端地址，并执行connect操作
     for (p = servinfo; p != NULL; p = p->ai_next) {
         /* Try to create the socket and to connect it.
          * If we fail in the socket() call, or on connect(), we retry with
          * the next entry in servinfo. */
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
+        // 设置端口复用
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        // 如果flag设置了ANET_CONNECT_NONBLOCK，则将socket设置为非阻塞模式
         if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
             goto error;
+        // 如果指定了源地址，则需要绑定客户端的源地址
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -332,9 +353,11 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
                 goto error;
             }
         }
+        // 连接服务端
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
             /* If the socket is non-blocking, it is ok for connect() to
              * return an EINPROGRESS error here. */
+            // 非阻塞模式下，如果返回值为EINPROGRESS，表示该socket是非阻塞的，且不能被关闭，此处需要特殊处理
             if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK)
                 goto end;
             close(s);
@@ -360,6 +383,7 @@ end:
 
     /* Handle best effort binding: if a binding address was used, but it is
      * not possible to create a socket, try again without a binding address. */
+    // 如果设置了ANET_CONNECT_BE_BINDING，则会使用不绑定本地地址的方式尝试执行connect操作
     if (s == ANET_ERR && source_addr && (flags & ANET_CONNECT_BE_BINDING)) {
         return anetTcpGenericConnect(err,addr,port,NULL,flags);
     } else {
@@ -367,11 +391,13 @@ end:
     }
 }
 
+// 阻塞模式进行TCP的连接
 int anetTcpConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONE);
 }
 
+// 非阻塞模式进行TCP的连接
 int anetTcpNonBlockConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
