@@ -391,18 +391,19 @@ end:
     }
 }
 
-// 阻塞模式进行TCP的连接
+// 阻塞模式进行TCP连接
 int anetTcpConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONE);
 }
 
-// 非阻塞模式进行TCP的连接
+// 使用不绑定源地址的非阻塞模式进行TCP连接
 int anetTcpNonBlockConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
 }
 
+// 使用绑定源地址的非阻塞模式进行TCP连接
 int anetTcpNonBlockBindConnect(char *err, const char *addr, int port,
                                const char *source_addr)
 {
@@ -410,6 +411,7 @@ int anetTcpNonBlockBindConnect(char *err, const char *addr, int port,
             ANET_CONNECT_NONBLOCK);
 }
 
+// 使用绑定源地址的非阻塞且可重试connect的模式进行TCP连接
 int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
                                          const char *source_addr)
 {
@@ -417,6 +419,7 @@ int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
 }
 
+// Unix的connect方法，与anetTcpGenericConnect类似，但不作源地址绑定和重试操作
 int anetUnixGenericConnect(char *err, const char *path, int flags)
 {
     int s;
@@ -445,11 +448,13 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
     return s;
 }
 
+// 使用阻塞方式
 int anetUnixConnect(char *err, const char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
 }
 
+// 使用非阻塞方式
 int anetUnixNonBlockConnect(char *err, const char *path)
 {
     return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
@@ -457,6 +462,7 @@ int anetUnixNonBlockConnect(char *err, const char *path)
 
 /* Like read(2) but make sure 'count' is read before to return
  * (unless error or EOF condition is encountered) */
+// 与read类似，但无论读取成功或失败，都会返回已经读取的字节数
 int anetRead(int fd, char *buf, int count)
 {
     ssize_t nread, totlen = 0;
@@ -472,6 +478,7 @@ int anetRead(int fd, char *buf, int count)
 
 /* Like write(2) but make sure 'count' is written before to return
  * (unless error is encountered) */
+// 与write类似，但无论写入成功或失败，都会返回已经写入的字节数
 int anetWrite(int fd, char *buf, int count)
 {
     ssize_t nwritten, totlen = 0;
@@ -485,6 +492,7 @@ int anetWrite(int fd, char *buf, int count)
     return totlen;
 }
 
+// 作为server端绑定本段地址，并设置监听socket
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
     if (bind(s,sa,len) == -1) {
         anetSetError(err, "bind: %s", strerror(errno));
@@ -492,6 +500,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
         return ANET_ERR;
     }
 
+    // 设置监听socket，同时设置syn backlog，对应net.ipv4.tcp_max_syn_backlog
     if (listen(s, backlog) == -1) {
         anetSetError(err, "listen: %s", strerror(errno));
         close(s);
@@ -500,6 +509,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
     return ANET_OK;
 }
 
+// 设置IPV6_V6ONLY socket选项后，将无法接收到IPv4的数据包
 static int anetV6Only(char *err, int s) {
     int yes = 1;
     if (setsockopt(s,IPPROTO_IPV6,IPV6_V6ONLY,&yes,sizeof(yes)) == -1) {
@@ -510,6 +520,7 @@ static int anetV6Only(char *err, int s) {
     return ANET_OK;
 }
 
+// 启动TCP server
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
     int s = -1, rv;
@@ -526,6 +537,8 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
+
+    // 根据从获取到的服务端信息中选择一个作为socket的入参
     for (p = servinfo; p != NULL; p = p->ai_next) {
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
@@ -548,11 +561,13 @@ end:
     return s;
 }
 
+// IPv4的TCP server
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog)
 {
     return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
 }
 
+// IPV6的TCP server
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
 {
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
@@ -563,6 +578,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     int s;
     struct sockaddr_un sa;
 
+    // 使用本地地址创建socket，仅用于本机进程通信
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
         return ANET_ERR;
 
@@ -576,6 +592,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     return s;
 }
 
+// 执行TCP server的accept操作
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
@@ -593,6 +610,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 
+// accept客户端的连接，并将端口转换为主机序，出参返回
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
@@ -612,6 +630,7 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     return fd;
 }
 
+// Unix的accept方式，仅返回accept的socket描述符
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
@@ -622,6 +641,7 @@ int anetUnixAccept(char *err, int s) {
     return fd;
 }
 
+// 通过socket描述符获取对端的IP和端口，分为IPv4和IPv6
 int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
@@ -667,6 +687,7 @@ int anetFormatAddr(char *buf, size_t buf_len, char *ip, int port) {
 }
 
 /* Like anetFormatAddr() but extract ip and port from the socket's peer. */
+// 以字符串的形式返回对端的IP和端口
 int anetFormatPeer(int fd, char *buf, size_t buf_len) {
     char ip[INET6_ADDRSTRLEN];
     int port;
@@ -675,6 +696,7 @@ int anetFormatPeer(int fd, char *buf, size_t buf_len) {
     return anetFormatAddr(buf, buf_len, ip, port);
 }
 
+// 通过socket描述符获取本端的IP和端口，分为IPv4和IPv6
 int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
@@ -697,6 +719,7 @@ int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     return 0;
 }
 
+// 以字符串的形式返回本端的IP和端口
 int anetFormatSock(int fd, char *fmt, size_t fmt_len) {
     char ip[INET6_ADDRSTRLEN];
     int port;
