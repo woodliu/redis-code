@@ -45,6 +45,7 @@ typedef enum {
     CONN_STATE_ERROR
 } ConnectionState;
 
+// CONN_FLAG_CLOSE_SCHEDULED表示调用handler处理之后会关闭连接
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */
 #define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
 
@@ -66,6 +67,10 @@ typedef struct ConnectionType {
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
 } ConnectionType;
 
+/* connection模块抽象封装了一个连接，ConnectionType中声明了一个连接需要的多种操作，ConnectionType的一个实现参见connection.c中的CT_Socket；
+   ConnectionState给出了当前连接的状态；ConnectionCallbackFunc处理与连接有关的读写等操作。
+   本模块可以看作一个接口，具体使用时需要实现对应的功能
+*/
 struct connection {
     ConnectionType *type;
     ConnectionState state;

@@ -74,6 +74,7 @@ ConnectionType CT_Socket;
  * be embedded in different structs, not just client.
  */
 
+// 初始化一个连接
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
@@ -97,6 +98,7 @@ connection *connCreateAcceptedSocket(int fd) {
 
 static int connSocketConnect(connection *conn, const char *addr, int port, const char *src_addr,
         ConnectionCallbackFunc connect_handler) {
+    // client使用绑定源地址的方式执行connect操作，连接服务端
     int fd = anetTcpNonBlockBestEffortBindConnect(NULL,addr,port,src_addr);
     if (fd == -1) {
         conn->state = CONN_STATE_ERROR;

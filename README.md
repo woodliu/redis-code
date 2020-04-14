@@ -2,7 +2,7 @@
 
 参考：[Redis-Code](https://github.com/linyiqun/Redis-Code)
 
-建议看下官方的[README](./README-Original.md)文档
+建议看下官方的[README](./README-Original.md)文档，对模块的介绍内容放在了对应的头文件中。
 
 当前进度如下：
 
@@ -10,9 +10,10 @@
 
   [sds.c](./src/sds.c)
 
-  [connection.c](./src/connection.c)
+  [connection.h](./src/connection.h)/[connection.c](./src/connection.c)
+
+  [ae.h](./src/ae.h)/[ae.c](./src/ae.c)]
 
 - 已完成：
 
   [anet.c](./src/anet.c)
-
