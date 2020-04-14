@@ -12,8 +12,9 @@
 
   [connection.h](./src/connection.h)/[connection.c](./src/connection.c)
 
-  [ae.h](./src/ae.h)/[ae.c](./src/ae.c)]
-
 - 已完成：
 
   [anet.c](./src/anet.c)
+
+  [ae.h](./src/ae.h)/[ae.c](./src/ae.c)
+
