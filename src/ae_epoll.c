@@ -101,6 +101,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee = {0}; /* avoid valgrind warning */
+    // 清除mask上与delmask相同的标识位，当mask的标识位情况后，其值为0(AE_NONE),直接调用EPOLL_CTL_DEL去注册
     int mask = eventLoop->events[fd].mask & (~delmask);
 
     ee.events = 0;

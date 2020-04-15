@@ -61,7 +61,7 @@
     #endif
 #endif
 
-// 初始化一个aeEventLoop结构体，aeEventLoop可以看作是某一种多路复用模式的封装
+// 初始化一个aeEventLoop结构体，aeEventLoop可以看作是某一种多路复用模式的封装。redis server有一个aeEventLoop，即server.el
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -524,7 +524,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
 
             /* Fire the writable event. */
-            // 如果有写事件，且注册了写函数，则调用写函数处理写事件
+            // 如果有写事件(写数据不会导致阻塞)，且注册了写函数，则调用写函数处理写事件
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
@@ -558,6 +558,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
 /* Wait for milliseconds until the given file descriptor becomes
  * writable/readable/exception */
+ // 在
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
@@ -567,6 +568,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
+    // 返回值非0，则说明有事件发生
     if ((retval = poll(&pfd, 1, milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;

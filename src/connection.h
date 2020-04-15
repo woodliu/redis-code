@@ -45,14 +45,15 @@ typedef enum {
     CONN_STATE_ERROR
 } ConnectionState;
 
+/* 下面两个flag用于设置connection.flags */
 // CONN_FLAG_CLOSE_SCHEDULED表示调用handler处理之后会关闭连接
 #define CONN_FLAG_CLOSE_SCHEDULED   (1<<0)      /* Closed scheduled by a handler */
-#define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
+#define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* 写屏障请求，用于事件处理 */
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
 typedef struct ConnectionType {
-    void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
+    void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask); //作为事件的写处理或读处理
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
     int (*write)(struct connection *conn, const void *data, size_t data_len);
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
@@ -75,15 +76,16 @@ struct connection {
     ConnectionType *type;
     ConnectionState state;
     short int flags;
-    short int refs;
-    int last_errno;
-    void *private_data;
-    ConnectionCallbackFunc conn_handler;
-    ConnectionCallbackFunc write_handler;
-    ConnectionCallbackFunc read_handler;
-    int fd;
+    short int refs; // 连接的引用计数，只有引用计数为0才能释放连接的内存
+    int last_errno; // 用于保存连接产生的最近的一个错误
+    void *private_data; // 给一个connection关联一个私有数据
+    ConnectionCallbackFunc conn_handler;  // 连接处理函数, CONN_STATE_CONNECTING，状态下有效。connSocketEventHandler中调用
+    ConnectionCallbackFunc write_handler; // 写事件处理函数, connSocketEventHandler中调用
+    ConnectionCallbackFunc read_handler;  // 读事件处理函数, connSocketEventHandler中调用
+    int fd;            // 连接对应的socket文件描述符
 };
 
+// 下面的函数调用了ConnectionType中的函数
 /* The connection module does not deal with listening and accepting sockets,
  * so we assume we have a socket when an incoming connection is created.
  *
