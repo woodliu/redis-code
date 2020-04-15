@@ -61,7 +61,7 @@
     #endif
 #endif
 
-// 初始化一个aeEventLoop结构体
+// 初始化一个aeEventLoop结构体，aeEventLoop可以看作是某一种多路复用模式的封装
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -73,7 +73,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
     eventLoop->timeEventHead = NULL;
-    eventLoop->timeEventNextId = 0; // 初始化时的事件ID为0
+    eventLoop->timeEventNextId = 0; // 初始化时的事件ID为0，随着时间事件的加入而累加
     eventLoop->stop = 0; /* 表示该aeEventLoop可用 */
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
@@ -105,6 +105,7 @@ int aeGetSetSize(aeEventLoop *eventLoop) {
 }
 
 /* Tells the next iteration/s of the event processing to set timeout of 0. */
+// 对epoll_wait来说，如果设置了AE_DONT_WAIT，则会导致该函数立即返回结果
 void aeSetDontWait(aeEventLoop *eventLoop, int noWait) {
     if (noWait)
         eventLoop->flags |= AE_DONT_WAIT;
@@ -155,6 +156,7 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     zfree(eventLoop);
 }
 
+// 调用该函数将会退出aeMain事件处理循环
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
@@ -177,7 +179,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
-    // 如果该fd大于当前注册的描述符的最大值maxfd，则更新maxfd = fd
+    // 如果该fd大于当前注册的描述符的最大值maxfd，则更新maxfd = fd，maxfd <= eventLoop->setsize
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
@@ -186,7 +188,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 // 删除文件事件
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
-    // 现有的fd均小于eventLoop->setsize，否则视为无效
+    // 现有的fd均小于eventLoop->setsize，否则视为无效，直接返回
     if (fd >= eventLoop->setsize) return;
     // 获取fd对应的文件事件结构体，如果mask为AE_NONE，则说明该fd并没有注册过，直接返回
     aeFileEvent *fe = &eventLoop->events[fd];
@@ -194,7 +196,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 
     /* We want to always remove AE_BARRIER if set when AE_WRITABLE
      * is removed. */
-    /* 如果设置了AE_WRITABLE，此处会在mask中添加AE_BARRIER，下面会一并清除这两个标识位。如果没有AE_WRITABLE，则无法
+    /* 如果设置了AE_WRITABLE，此处会在mask中添加AE_BARRIER，用于后续一并清除这两个标识位。如果没有AE_WRITABLE，则无法
        执行写操作，因此也无需写屏障 */
     if (mask & AE_WRITABLE) mask |= AE_BARRIER;
     
@@ -326,7 +328,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
     /* 如果当前时间小于eventLoop初始化时的时间，说明系统时间出现问题。此时将每个时间事件的when_sec设置为0，这样当调用
-       aeSearchNearestTimer时会立即返回链表的第一个节点，所有的时间事件都会被尽快执行。这种策略是根据实践得出的结论，
+       aeSearchNearestTimer时会立即返回链表的第一个节点，并立即通过timeProc处理该时间事件。这种策略是根据实践得出的结论，
        并将eventLoop->lastTime的时间更正为当前时间 */
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
@@ -345,7 +347,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         long long id;
 
         /* Remove events scheduled for deletion. */
-        // 下面处理用于处理待清理节点的前后指针，并调用finalizerProc函数清理该节点
+        // 下面处理用于处理设置了AE_DELETED_EVENT_ID标识的待清理节点的前后指针，并调用finalizerProc函数清理该节点
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
             if (te->prev)
@@ -423,7 +425,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
-    // 如果有未处理的文件事件或时间事件(未设置AE_DONT_WAIT标识)
+    // 如果有未处理的文件事件(maxfd != -1)或时间事件(未设置AE_DONT_WAIT标识)
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;

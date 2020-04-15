@@ -70,7 +70,8 @@ typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *client
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
-/* redis的事件分为文本事件和时间事件，对应aeFileEvent和aeTimeEvent，对应还有四个封装ae_epoll.c,ae_evport.c,ae_kqueue.c和ae_select.c，
+/* redis的事件分为文本事件和时间事件，对应aeFileEvent和aeTimeEvent，对应还有四个封装ae_epoll.c,ae_evport.c,ae_kqueue.c和ae_select.c。
+   时间事件在aeProcessEvents中有两种用途：用于设置aeApiPoll的超时时间，对epoll来说，设置了每次执行epoll_wait的超时时间；使用时间事件处理函数处理时间事件
    数据结构参见https://blog.csdn.net/larry_zeng1/article/details/78835006
 */
 /* File event structure */
@@ -105,8 +106,8 @@ typedef struct aeEventLoop {
     int setsize; /* 能够跟踪的文件描述符的最大数目，该值限定了跟踪的文件描述符的上限。events和fired的长度不能大于该值 */
     long long timeEventNextId;
     time_t lastTime;     /* 用于校验系统时间的准确性 */
-    aeFileEvent *events; /* Registered events */
-    aeFiredEvent *fired; /* Fired events */
+    aeFileEvent *events; /* 注册的文件事件，注意它与ae_epoll.c中的aeApiState.events的不同。前者主要用于注册文件描述符的处理函数，后者反映epoll句柄上注册的所有文件描述符的事件。数目上不一定相等 */
+    aeFiredEvent *fired; /* 触发的文件事件，触发后会调用aeFileEvent的rfileProc或wfileProc处理 */
     aeTimeEvent *timeEventHead; /* 时间事件链表 */ 
     int stop;
     void *apidata; /* This is used for polling API specific data */

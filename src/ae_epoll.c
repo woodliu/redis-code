@@ -33,7 +33,7 @@
 
 typedef struct aeApiState {
     int epfd; //epoll句柄
-    struct epoll_event *events;
+    struct epoll_event *events; //事件数组，用于保存底层产生的事件
 } aeApiState;
 
 // 
@@ -46,7 +46,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    // 创建一个epoll句柄，设置内核支持的最大监听数目1024
+    // 创建一个epoll句柄，设置为内核支持的最大监听数目1024
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
         zfree(state->events);
@@ -88,7 +88,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     ee.events = 0;
     // 如果是更新操作，则保留之前设置的events类型
     mask |= eventLoop->events[fd].mask; /* Merge old events */
-    // 主要关注描述符的读写事件
+    // 主要关注描述符的读写事件，设置底层epoll仅上报读写事件
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
     ee.data.fd = fd;
@@ -97,7 +97,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     return 0;
 }
 
-// 删除事件
+// 删除监听事件
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee = {0}; /* avoid valgrind warning */
@@ -120,13 +120,14 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
-    // 如果入参的tvp为NULL，则epoll_wait会阻塞等待
+    // 如果入参的tvp为NULL，则epoll_wait会阻塞等待，为0则立马返回
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {
         int j;
 
         numevents = retval;
+        // 遍历所有产生的epoll事件，并将相关数据保存在eventLoop->fired中，在aeProcessEvents中调用读写处理函数进行处理
         for (j = 0; j < numevents; j++) {
             int mask = 0;
             struct epoll_event *e = state->events+j;
