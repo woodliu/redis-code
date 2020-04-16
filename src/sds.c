@@ -307,20 +307,27 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+// 调整存放数据的内存，使其等于存放的数据。该功能可以用于减少内存浪费，但会影响性能
 sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
-    // 获取
+    // 获取原始sds类型
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
+    // 获取原始sds的首部长度
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+    // 获取已使用的内存大小
     size_t len = sdslen(s);
+    // 获取已分配的内存大小
     size_t avail = sdsavail(s);
+    // sh指向sds的首部起始地址
     sh = (char*)s-oldhdrlen;
 
     /* Return ASAP if there is no space left. */
+    // 如果已经没有可用的内存，则没有必要进行释放，直接返回
     if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
+    // 根据类型获取合适的sds类型以及首部长度
     type = sdsReqType(len);
     hdrlen = sdsHdrSize(type);
 
@@ -328,10 +335,13 @@ sds sdsRemoveFreeSpace(sds s) {
      * required, we just realloc(), letting the allocator to do the copy
      * only if really needed. Otherwise if the change is huge, we manually
      * reallocate the string to use the different header type. */
+    /* 如果新的内存和原始内存大小一样，s_realloc会不会作任务处理，直接返回原始内存地址；
+       如果新的内存大于原始内存，则调用s_realloc进行内存扩展*/
     if (oldtype==type || type > SDS_TYPE_8) {
         newsh = s_realloc(sh, oldhdrlen+len+1);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+oldhdrlen;
+    // 如果新的内存小于原始内存，则需要内存收缩，此时需要重新申请内存，拷贝原始数据，并释放原始内存
     } else {
         newsh = s_malloc(hdrlen+len+1);
         if (newsh == NULL) return NULL;
@@ -341,6 +351,8 @@ sds sdsRemoveFreeSpace(sds s) {
         s[-1] = type;
         sdssetlen(s, len);
     }
+
+    // 更新sds首部中的已分配的内存字段alloc
     sdssetalloc(s, len);
     return s;
 }
@@ -352,6 +364,7 @@ sds sdsRemoveFreeSpace(sds s) {
  * 3) The free buffer at the end if any.
  * 4) The implicit null term.
  */
+// 获取sds分配的内存大小，包括sds首部和数据内存
 size_t sdsAllocSize(sds s) {
     size_t alloc = sdsalloc(s);
     return sdsHdrSize(s[-1])+alloc+1;
@@ -359,6 +372,7 @@ size_t sdsAllocSize(sds s) {
 
 /* Return the pointer of the actual SDS allocation (normally SDS strings
  * are referenced by the start of the string buffer). */
+// 获取指向sds首部的指针
 void *sdsAllocPtr(sds s) {
     return (void*) (s-sdsHdrSize(s[-1]));
 }
