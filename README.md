@@ -10,6 +10,10 @@
 
   [networking.c](./src/networking.c)
 
+  [object.c](./src/object.c)
+
+  [adlist.c](./src/adlist.c)/[adlist.h](./src/adlist.h)
+
 - 已完成：
 
   [ae.h](./src/ae.h)/[ae.c](./src/ae.c)
