@@ -505,9 +505,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * This is useful when, for instance, we want to do things
              * in the beforeSleep() hook, like fsynching a file to disk,
              * before replying to a client. */
-            /* 如上注释所示，与一般服务处理请求，然后发送响应顺序相同，通常先处理读请求，然后处理写请求。
-               如果设置了写屏障 */
-            // 获取写屏障标识
+            /* 如上注释所示，与一般服务端先处理请求，然后发送响应顺序相同，这里通常也先处理读事件，然后处理写事件。
+               如果设置了写屏障，则先处理写事件，然后处理读事件。ae中的写屏障目前没有被使用，参见https://github.com/antirez/redis/issues/7098#issuecomment-614435928 */
             int invert = fe->mask & AE_BARRIER;
 
             /* Note the "fe->mask & mask & ..." code: maybe an already
@@ -580,7 +579,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
-// 事件处理的入口函数，如果注册了beforesleep函数，则执行该函数
+// 事件处理的入口函数，如果注册了beforesleep函数，则执行该函数。redis的主函数中调用
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {

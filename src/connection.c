@@ -74,7 +74,7 @@ ConnectionType CT_Socket;
  * be embedded in different structs, not just client.
  */
 
-// 初始化一个connection结构体
+// 初始化一个connection结构体，此时并没关联真正的网络连接
 connection *connCreateSocket() {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
@@ -89,7 +89,7 @@ connection *connCreateSocket() {
  * The socket is not read for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
  */
-// 创建一个socket类型的连接，此时还没有从该连接上读取任何数据，执行connSocketAccept之后state状态会变为CONN_STATE_CONNECTED
+// 关联一个socket类型的连接，此时还没有从该连接上读取任何数据，执行connSocketAccept之后state状态会变为CONN_STATE_CONNECTED
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
     conn->fd = fd;
@@ -196,7 +196,7 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
     return ret;
 }
 
-// 接收连接，类似监听socket接收到连接，此时需要增加连接的引用计数，状态设置为CONN_STATE_CONNECTED
+// 接收连接，类似监听socket接收到连接，状态设置为CONN_STATE_CONNECTED
 static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     int ret = C_OK;
 
@@ -328,7 +328,7 @@ static int connSocketBlockingConnect(connection *conn, const char *addr, int por
         return C_ERR;
     }
 
-    // 如果超时后没有任何事件发生，aeWait返回0，否则返回AE_WRITABLE
+    // 如果超时后没有任何事件发生，aeWait返回0，将连接状态标记为CONN_STATE_ERROR。否则返回AE_WRITABLE
     if ((aeWait(fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
         conn->state = CONN_STATE_ERROR;
         conn->last_errno = ETIMEDOUT;

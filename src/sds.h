@@ -44,14 +44,15 @@ typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
+// sdshdr5的长度保存在flags的高5位，最大支持的数据长度为31
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; /* used */
-    uint8_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    uint8_t len; /* 已使用的分配的数据段内存 */
+    uint8_t alloc; /* 分配的真实数据的长度，不包含sds首部和添加的字符串结束符 */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits，表示sds的类型，如SDS_TYPE_8 */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
@@ -78,12 +79,13 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_16 2
 #define SDS_TYPE_32 3
 #define SDS_TYPE_64 4
-#define SDS_TYPE_MASK 7
+#define SDS_TYPE_MASK 7 // 用于获取sds的类型值，主要用于sdshdr5的sds首部，其类型与长度共用一个flags字段
 #define SDS_TYPE_BITS 3
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+// 从sds首部返回表示分配的数据段的长度字段len
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -101,6 +103,7 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+// 获取sds中可用的内存，即alloc-len的值
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -127,7 +130,9 @@ static inline size_t sdsavail(const sds s) {
     return 0;
 }
 
+// 更新sds首部中的len字段，但不涉及内存申请和释放
 static inline void sdssetlen(sds s, size_t newlen) {
+    // 获取sds的类型，使用
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -194,6 +199,7 @@ static inline size_t sdsalloc(const sds s) {
     return 0;
 }
 
+// 设置sds首部字段中已分配的内存字段alloc
 static inline void sdssetalloc(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {

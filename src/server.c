@@ -5013,6 +5013,7 @@ int main(int argc, char **argv) {
             strtol(redisGitDirty(),NULL,10) > 0,
             (int)getpid());
 
+    // redis-server的第一个参数应该是redis.conf配置文件
     if (argc == 1) {
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     } else {
