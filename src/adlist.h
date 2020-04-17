@@ -32,25 +32,27 @@
 #define __ADLIST_H__
 
 /* Node, List, and Iterator are the only data structures used currently. */
-
+// node节点，属于双向链表节点，value保存实际的数据
 typedef struct listNode {
     struct listNode *prev;
     struct listNode *next;
     void *value;
 } listNode;
 
+// 迭代器结构体
 typedef struct listIter {
     listNode *next;
     int direction;
 } listIter;
 
+// list是一个双向链表
 typedef struct list {
-    listNode *head;
-    listNode *tail;
-    void *(*dup)(void *ptr);
-    void (*free)(void *ptr);
-    int (*match)(void *ptr, void *key);
-    unsigned long len;
+    listNode *head; //指向list的首节点
+    listNode *tail; //指向list的尾节点
+    void *(*dup)(void *ptr); // 用于复制node的value
+    void (*free)(void *ptr); // 用于释放node的value
+    int (*match)(void *ptr, void *key); // 用于使用key匹配node的value
+    unsigned long len; //list的节点长度
 } list;
 
 /* Functions implemented as macros */
@@ -89,7 +91,7 @@ void listRotate(list *list);
 void listJoin(list *l, list *o);
 
 /* Directions for iterators */
-#define AL_START_HEAD 0
-#define AL_START_TAIL 1
+#define AL_START_HEAD 0 // 从链表首部开始迭代
+#define AL_START_TAIL 1 // 从链表尾部开始迭代
 
 #endif /* __ADLIST_H__ */
