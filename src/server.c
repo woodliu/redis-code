@@ -1811,6 +1811,7 @@ void checkChildrenDone(void) {
  * a macro is used: run_with_period(milliseconds) { .... }
  */
 
+// server.hz规定了每秒调用该函数的次数。
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);

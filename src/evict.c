@@ -49,6 +49,8 @@
  * inverse frequency means to evict keys with the least frequent accesses).
  *
  * Empty entries have the key pointer set to NULL. */
+/* 此处试下了两种内存回收策略，LRU和LFU，前者根据最近最少原则驱逐内存，后者根据使用频率原则驱逐内存，eviction pool中的元素按照空闲时间由小到大排序；
+   当使用LFU策略时，使用反向频率(驱逐概率与使用频率成反比)代替空闲时间，这样就可能导致驱逐具有大量空闲内存的元素(如果该元素使用频率最低)*/
 #define EVPOOL_SIZE 16
 #define EVPOOL_CACHED_SDS_SIZE 255
 struct evictionPoolEntry {
@@ -67,6 +69,7 @@ static struct evictionPoolEntry *EvictionPoolLRU;
 /* Return the LRU clock, based on the clock resolution. This is a time
  * in a reduced-bits format that can be used to set and check the
  * object->lru field of redisObject structures. */
+// 获取LRU的时钟，分辨率为1s。最大值所占的比特位为24位(LRU_BITS)
 unsigned int getLRUClock(void) {
     return (mstime()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
 }
@@ -75,8 +78,10 @@ unsigned int getLRUClock(void) {
  * If the current resolution is lower than the frequency we refresh the
  * LRU clock (as it should be in production servers) we return the
  * precomputed value, otherwise we need to resort to a system call. */
+// 选择更高分辨率的lru clock
 unsigned int LRU_CLOCK(void) {
     unsigned int lruclock;
+    // server.hz表示server.lruclock每秒的刷新次数。如果当前的分辨率大于1000ms，则使用server.lruclock，否则使用分辨率为1000ms
     if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
         lruclock = server.lruclock;
     } else {
@@ -87,10 +92,14 @@ unsigned int LRU_CLOCK(void) {
 
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
+// 获取redis对象空闲的时间，即距离上一次被访问的时间差
 unsigned long long estimateObjectIdleTime(robj *o) {
     unsigned long long lruclock = LRU_CLOCK();
+    // 如果当前时间大于对象被调用的时间，则直接取时间差作为该对象idle的时间
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
+    /* 如果当前刷新时间点小于对象上次被访问的时间点，这是不合理的，说明lruclock发生了回环，比较合理的表达应该是(lruclock + LRU_CLOCK_MAX) - o->lru
+      ，另外注意该函数的返回类型为unsigned long long，返回结果不受LRU_CLOCK_MAX的限制*/
     } else {
         return (lruclock + (LRU_CLOCK_MAX - o->lru)) *
                     LRU_CLOCK_RESOLUTION;
@@ -136,6 +145,7 @@ unsigned long long estimateObjectIdleTime(robj *o) {
  * evicted in the whole database. */
 
 /* Create a new eviction pool. */
+// 创建一个eviction pool
 void evictionPoolAlloc(void) {
     struct evictionPoolEntry *ep;
     int j;
@@ -349,6 +359,7 @@ unsigned long LFUDecrAndReturn(robj *o) {
 /* We don't want to count AOF buffers and slaves output buffers as
  * used memory: the eviction should use mostly data size. This function
  * returns the sum of AOF and slaves buffer. */
+// 本函数用于获取AOF和slaves的buffer之和，它们不计入已使用的内存中，这些内存不会被驱逐。可以驱逐的是保存的数据。
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
     int slaves = listLength(server.slaves);
@@ -356,13 +367,14 @@ size_t freeMemoryGetNotCountedMemory(void) {
     if (slaves) {
         listIter li;
         listNode *ln;
-
+        // 使用迭代器计算所有slave使用的buffer之和
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = listNodeValue(ln);
             overhead += getClientOutputBufferMemoryUsage(slave);
         }
     }
+    // 获取AOF使用的buffer之和，为server.aof_buf加上aof_rewrite_buf_blocks使用的buffer
     if (server.aof_state != AOF_OFF) {
         overhead += sdsalloc(server.aof_buf)+aofRewriteBufferSize();
     }
@@ -393,25 +405,35 @@ size_t freeMemoryGetNotCountedMemory(void) {
  *              limit.
  *              (Populated both for C_ERR and C_OK)
  */
+/* 获取当前内存使用情况，返回C_OK则表示不需要进行内存释放，返回C_ERR表示数据占用的内存logical大于maxmemory，需要进行内存释放
+  total：上报的内存
+  logical：逻辑上已使用的内存。logical = total - (AOF_buffer + slaves_buffer)
+  tofree:需要释放的内存量
+  level:作为返回的标志位，0表示当前已使用内存没有设置maxmemory限制；非0表示当前已使用内存与maxmemory的比例*/
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level) {
     size_t mem_reported, mem_used, mem_tofree;
 
     /* Check if we are over the memory usage limit. If we are not, no need
      * to subtract the slaves output buffers. We can just return ASAP. */
+    // 获取上报的总内存，上报的总内存内容不能直接与maxmemory对比。见下
     mem_reported = zmalloc_used_memory();
     if (total) *total = mem_reported;
 
     /* We may return ASAP if there is no need to compute the level. */
+    // 如果没有设置maxmemory(值为0),或当前使用的内存小于maxmemory限值，则无需释放内存，直接返回
     int return_ok_asap = !server.maxmemory || mem_reported <= server.maxmemory;
     if (return_ok_asap && !level) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
     mem_used = mem_reported;
+    // slave和AOF使用的内存不计入已使用内存，这些内存不能被驱逐。
     size_t overhead = freeMemoryGetNotCountedMemory();
+    // 计算出已使用的内存，mem_used < overhead的情况可能是因为异步内存操作导致的
     mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
 
     /* Compute the ratio of memory usage. */
+    // 计算level的比例
     if (level) {
         if (!server.maxmemory) {
             *level = 0;
@@ -420,14 +442,16 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
         }
     }
 
+    // 如果没有必要进行内存回收，直接返回
     if (return_ok_asap) return C_OK;
 
     /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;
 
     /* Compute how much memory we need to free. */
+    // 计算需要释放的内存
     mem_tofree = mem_used - server.maxmemory;
-
+    // 逻辑上使用的内存
     if (logical) *logical = mem_used;
     if (tofree) *tofree = mem_tofree;
 
@@ -443,10 +467,13 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
  * were over the limit, but the attempt to free memory was successful.
  * Otehrwise if we are over the memory limit, but not enough memory
  * was freed to return back under the limit, the function returns C_ERR. */
+// 该函数会被周期性地调度，检查当前使用的内存是否达到maxmemory的限定，如果是则会执行内存回收，直到使用的内存小于maxmemory
 int freeMemoryIfNeeded(void) {
     int keys_freed = 0;
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
+    /* 参见redis.conf中replica-ignore-maxmemory的解释。如果是从且设置了repl_slave_ignore_maxmemory=yes(默认)，
+       则从redis不会受maxmemory的限制，由master发生DEL命令来驱逐key。这样做的目的是为了主从的保证一致性。不建议设置为no */
     if (server.masterhost && server.repl_slave_ignore_maxmemory) return C_OK;
 
     size_t mem_reported, mem_tofree, mem_freed;
@@ -458,11 +485,14 @@ int freeMemoryIfNeeded(void) {
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
     if (clientsArePaused()) return C_OK;
+    // 如果返回C_OK，则无需进行内存回收，直接返回
     if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK)
         return C_OK;
 
+    //统计已释放的内存量
     mem_freed = 0;
 
+    // MAXMEMORY_NO_EVICTION策略下不会进行内存回收，直接返回
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
         goto cant_free; /* We need to free memory, but policy forbids. */
 

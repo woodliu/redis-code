@@ -204,6 +204,7 @@ static long long ustime(void) {
     return ust;
 }
 
+//获取当前时间，单位为微妙
 static long long mstime(void) {
     struct timeval tv;
     long long mst;

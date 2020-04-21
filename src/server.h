@@ -593,14 +593,16 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 
 #define LRU_BITS 24
-#define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
-#define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
+#define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru redis 对象的LRU的最大值*/
+#define LRU_CLOCK_RESOLUTION 1000 /* LRU时钟分辨率，毫秒*/
 
 #define OBJ_SHARED_REFCOUNT INT_MAX
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+    unsigned lru:LRU_BITS; /* 记录了每个redis对象最近一次被访问的时间，通过与server.lruclock的时间差参与LRU策略回收。
+                            * 对象更新 LRU 时钟的地方有两个：a) 对象创建时；b) 对象被使用时
+                            * LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
     int refcount;
@@ -1024,12 +1026,13 @@ struct redisServer {
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
-    int hz;                     /* serverCron() calls frequency in hertz */
+    int hz;                     /* serverCron()的调用频率(赫兹)，可在redis.conf中调节，默认为10(每秒10次)。提高该值可以加快过期key的回收，关闭超时的客户端等，但会消耗更多CPU */
     redisDb *db;
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
-    _Atomic unsigned int lruclock; /* Clock for LRU eviction */
+    _Atomic unsigned int lruclock; /* Clock for LRU eviction，服务的LRU时钟，在调用serverCron时会被刷新。server.lruclock - obj.lru
+                                    * 计算出对象距上一次被访问的时间，serverCron每秒会被调用server.hz次，因此该值每秒也会被刷新server.hz次 */
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
