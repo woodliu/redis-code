@@ -638,8 +638,8 @@ typedef struct clientReplyBlock {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
+    dict *dict;                 /* The keyspace for this DB .数据库键空间，保存着数据库中的所有键值对*/
+    dict *expires;              /* Timeout of keys with a timeout set 键的过期时间，字典的键为键，字典的值为过期时间 UNIX 时间戳*/
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
@@ -1027,7 +1027,7 @@ struct redisServer {
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
     int hz;                     /* serverCron()的调用频率(赫兹)，可在redis.conf中调节，默认为10(每秒10次)。提高该值可以加快过期key的回收，关闭超时的客户端等，但会消耗更多CPU */
-    redisDb *db;
+    redisDb *db;                /* redis的db数组*/
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;

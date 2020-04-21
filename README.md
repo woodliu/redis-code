@@ -8,11 +8,17 @@
 
 - 正在进行：
 
+  [db.c](./src/db.c)
+
   [networking.c](./src/networking.c)
 
   [object.c](./src/object.c)
 
+  [dict.c](./src/dict.c)
+
   [evict.c](./src/evict.c)
+
+  [lazyfree.c](./src/lazyfree.c)
 
 - 已完成：
 
