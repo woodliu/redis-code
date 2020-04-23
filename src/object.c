@@ -37,13 +37,13 @@
 #endif
 
 /* ===================== Creation and parsing of objects ==================== */
-
+// 初始化一个新的redis对象
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    o->refcount = 1;
+    o->refcount = 1; //引用计数
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
