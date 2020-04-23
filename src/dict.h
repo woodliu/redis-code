@@ -44,8 +44,9 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
+// 保存了实际的键值对
 typedef struct dictEntry {
-    void *key;
+    void *key; // 该dictEntry在哈希表中的bucket索引为hash(key) & d->ht[table].sizemask
     union {
         void *val;
         uint64_t u64;
@@ -67,18 +68,21 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
+    dictEntry **table; // 哈希表dictEntry数组，每个dictEntry是一个单链表。如果多个dictEntry的key的哈希值运算(&sizemask)相同，则它们会被放到相同的table中，使用链表连接
+    unsigned long size; //哈希表大小
+    unsigned long sizemask; //哈希表大小掩码，总是等于size-1，主要用于计算索引
+    unsigned long used; // 哈希表目前已有键值对(dictEntry)的数量
 } dictht;
 
 typedef struct dict {
-    dictType *type;
+    dictType *type; //类型特定函数
     void *privdata;
-    dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
-    unsigned long iterators; /* number of iterators currently running */
+    dictht ht[2]; //每个dict都有两个，只有行rehash的时候才会用到第2个哈希表
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 
+                     * rehashidx = -1 可以说明二个事实：一是前一次的rehash结束，ht[0]的元素全部转移到了ht[1]中，并最终赋值给d->ht[0]，清空d->ht[1]；二是没有能力进行rehash，
+                     * 即dict->ht[1]为NULL(没有执行过dictExpand)；反过来rehashidx != -1说明了要么正在进行rehash；要么rehash函数结束(但rehash过程并没有结束)，但ht[0]和ht[1]中都保留部分数据，
+                     * 这样在如dictAddRaw，dictGenericDelete等函数中都会执行增量rehash，辅助结束rehash */
+    unsigned long iterators; /* number of iterators currently running，当前字典上运行的迭代器的数目。该值非0则不会进行增量rehash */
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -87,9 +91,9 @@ typedef struct dict {
  * should be called while iterating. */
 typedef struct dictIterator {
     dict *d;
-    long index;
-    int table, safe;
-    dictEntry *entry, *nextEntry;
+    long index;  // 哈希表的bucket索引
+    int table, safe; // table对应dict->ht[i]中的索引i；safe为使用安全方式进行迭代，即如果迭代时修改了哈希表也不会导致系统退出
+    dictEntry *entry, *nextEntry; // entry为迭代到的dictEntry，nextEntry等于dictEntry->next
     /* unsafe iterator fingerprint for misuse detection. */
     long long fingerprint;
 } dictIterator;
@@ -137,7 +141,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
         (d)->type->keyCompare((d)->privdata, key1, key2) : \
         (key1) == (key2))
 
-#define dictHashKey(d, key) (d)->type->hashFunction(key)
+#define dictHashKey(d, key) (d)->type->hashFunction(key) // 通过hash函数得出key对应的哈希值
 #define dictGetKey(he) ((he)->key)
 #define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
@@ -145,7 +149,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictGetDoubleVal(he) ((he)->v.d)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
-#define dictIsRehashing(d) ((d)->rehashidx != -1)
+#define dictIsRehashing(d) ((d)->rehashidx != -1) /* 判断哈希表是否正在rehash中。需要注意的是"正在rehash过程中"并不是说其他线程正在异步进行rehash，而是一次rehash之后没有将ht[0]中的元素全部rehash到ht[1]中
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);

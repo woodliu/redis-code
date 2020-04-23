@@ -14,8 +14,6 @@
 
   [object.c](./src/object.c)
 
-  [dict.c](./src/dict.c)
-
   [evict.c](./src/evict.c)
 
   [lazyfree.c](./src/lazyfree.c)
@@ -27,3 +25,6 @@
   [connection.h](./src/connection.h)/[connection.c](./src/connection.c)/[ae_epoll.c](./src/ae_epoll.c)/[anet.c](./src/anet.c)
 
   [sds.c](./src/sds.c)/[sds.h](./src/sds.h)/[adlist.c](./src/adlist.c)/[adlist.h](./src/adlist.h)
+  
+  [dict.c](./src/dict.c)/[dict.h](./src/dict.h)
+
