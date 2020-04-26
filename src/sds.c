@@ -39,7 +39,7 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
-const char *SDS_NOINIT = "SDS_NOINIT";
+const char *SDS_NOINIT = "SDS_NOINIT"; //不对内存进行初始化
 
 /* 获取sds首都长度。非SDS_TYPE_5的sds首部结构如下，注意buf[]在初始时不占用内存，后续指代保存的数据
     +------+--------------------+

@@ -347,7 +347,9 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 
 /* Logarithmically increment a counter. The greater is the current counter value
  * the less likely is that it gets really implemented. Saturate it at 255. */
+// 对数递增计数器
 uint8_t LFULogIncr(uint8_t counter) {
+    // 如果计数器已经达到最大值(8比特全1)，则返回最大值1
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
     double baseval = counter - LFU_INIT_VAL;

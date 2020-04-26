@@ -18,6 +18,14 @@
 
   [lazyfree.c](./src/lazyfree.c)
 
+  [quicklist.c](./src/quicklist.c)/[quicklist.h](./src/quicklist.h)
+
+  [ziplist.c](./src/ziplist.c)/[ziplist.h](./src/ziplist.h)
+
+  [zset.c](./src/zset.c)
+
+  [t_stream.c](./src/t_stream.c)
+
 - 已完成：
 
   [ae.h](./src/ae.h)/[ae.c](./src/ae.c)

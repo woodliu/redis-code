@@ -40,13 +40,20 @@
 // 初始化一个新的redis对象
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
-    o->type = type;
+    o->type = type; // redis的对象类型，字符串，哈希表等
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    o->refcount = 1; //引用计数
+    o->refcount = 1; //引用计数的初始值
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
+
+    /* LFU下o->lru的结构如下：
+        访问时间     访问频率          
+    +-----------------------+
+    |     16 bit    | 8 bit |
+    +-----------------------+
+       如果maxmemory策略是MAXMEMORY_FLAG_LFU，将16bit时间部分设置为当前时间(的低16位)，初始的计数为LFU_INIT_VAL */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
@@ -66,6 +73,7 @@ robj *createObject(int type, void *ptr) {
  * robj *myobject = makeObjectShared(createObject(...));
  *
  */
+// 通过将o->refcount设置为一个特定的值OBJ_SHARED_REFCOUNT(INT_MAX)，将该对象标记为"共享"
 robj *makeObjectShared(robj *o) {
     serverAssert(o->refcount == 1);
     o->refcount = OBJ_SHARED_REFCOUNT;
@@ -74,6 +82,7 @@ robj *makeObjectShared(robj *o) {
 
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
+// 创建一个字符串类型的对象，o->ptr指向sds的字符串数据部分
 robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING, sdsnewlen(ptr,len));
 }
@@ -81,28 +90,36 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
+// 创建并返回一个嵌入式的字符串类型的对象，格式为：robj|sdshdr8|sds|'\0'
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
+    // 此处的o对应的内存为一个redis对象大小+一个sds大小(含首部和数据部分和一个字节的字符串结束符)
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    // 指向sds首部的指针
     struct sdshdr8 *sh = (void*)(o+1);
 
-    o->type = OBJ_STRING;
-    o->encoding = OBJ_ENCODING_EMBSTR;
-    o->ptr = sh+1;
+    o->type = OBJ_STRING; // 字符串类型
+    o->encoding = OBJ_ENCODING_EMBSTR; // 编码格式为嵌入式的字符串编码
+    o->ptr = sh+1; // ptr指向sds的数据部分
     o->refcount = 1;
+    // 初始化o->lru
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
         o->lru = LRU_CLOCK();
     }
 
+    // 设置sds首部数据
     sh->len = len;
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
+    // 如果设置了SDS_NOINIT，则不对sds的数据部分进行初始化
     if (ptr == SDS_NOINIT)
         sh->buf[len] = '\0';
+    // 使用入参的字符串初始化sds的数据部分
     else if (ptr) {
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
+    // 将sds的数据部分初始化为0
     } else {
         memset(sh->buf,0,len+1);
     }
@@ -116,6 +133,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * The current limit of 44 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
+// 创建一个字符串对象，并通过字符串长度限定OBJ_ENCODING_EMBSTR_SIZE_LIMIT选择redis对象的格式
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
@@ -130,9 +148,12 @@ robj *createStringObject(const char *ptr, size_t len) {
  * integer, because the object is going to be used as value in the Redis key
  * space (for instance when the INCR command is used), so we want LFU/LRU
  * values specific for each key. */
+/* 根据一个long long类型的数值创建一个字符串对象，返回对象的编码类型可能是字符串，也可能是整数
+   如果valueobj非0，则返回一个非共享的对象 */
 robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     robj *o;
 
+    // 如果没有对内存进行限制或没有使用MAXMEMORY_FLAG_NO_SHARED_INTEGERS(即，不适用LRU或LFU淘汰对象)时可以使用共享对象
     if (server.maxmemory == 0 ||
         !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
     {
@@ -141,10 +162,13 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
         valueobj = 0;
     }
 
+    // 如果可以使用共享的字符串对象，则增加对该对象的引用计数，并返回该对象
     if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
+    // 创建新的对象
     } else {
+        // 如果能够用整数表达value，则将编码设置为OBJ_ENCODING_INT，否则使用OBJ_ENCODING_RAW编码
         if (value >= LONG_MIN && value <= LONG_MAX) {
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
@@ -158,6 +182,7 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
 
 /* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
  * to create a shared object if possible. */
+// 尝试根据longlong类型的value返回一个共享的对象
 robj *createStringObjectFromLongLong(long long value) {
     return createStringObjectFromLongLongWithOptions(value,0);
 }
@@ -166,6 +191,7 @@ robj *createStringObjectFromLongLong(long long value) {
  * object when LFU/LRU info are needed, that is, when the object is used
  * as a value in the key space, and Redis is configured to evict based on
  * LFU/LRU. */
+ // // 尝试根据longlong类型的value返回一个非共享的对象
 robj *createStringObjectFromLongLongForValue(long long value) {
     return createStringObjectFromLongLongWithOptions(value,1);
 }
@@ -176,8 +202,10 @@ robj *createStringObjectFromLongLongForValue(long long value) {
  * and the output of snprintf() is not modified.
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
+// 根据long double类型的value创建一个字符串对象。
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
     char buf[MAX_LONG_DOUBLE_CHARS];
+    // humanfriendly用于处理浮点数
     int len = ld2string(buf,sizeof(buf),value,humanfriendly? LD_STR_HUMAN: LD_STR_AUTO);
     return createStringObject(buf,len);
 }
@@ -190,11 +218,15 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
  * will always result in a fresh object that is unshared (refcount == 1).
  *
  * The resulting object always has refcount set to 1. */
+// 复制一个字符串对象
 robj *dupStringObject(const robj *o) {
     robj *d;
 
+    // 对入参的类型判断
     serverAssert(o->type == OBJ_STRING);
-
+    
+    /* 字符串的编码有OBJ_ENCODING_RAW，OBJ_ENCODING_EMBSTR，和OBJ_ENCODING_INT三种。OBJ_ENCODING_RAW和
+       OBJ_ENCODING_INT仅在编码类型上有所区别(即o->ptr) */
     switch(o->encoding) {
     case OBJ_ENCODING_RAW:
         return createRawStringObject(o->ptr,sdslen(o->ptr));
@@ -211,6 +243,7 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
+// 下面用于初始化不同类型的对象
 robj *createQuicklistObject(void) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);
@@ -284,6 +317,7 @@ void freeStringObject(robj *o) {
     }
 }
 
+// 下面用于释放各种对象
 void freeListObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
@@ -350,6 +384,7 @@ void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+// 处理减少各种类型的对象的引用计数。当引用计数为1时会释放对象，否则引用计数减1(非共享类型的对象)
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {
@@ -372,6 +407,7 @@ void decrRefCount(robj *o) {
 /* This variant of decrRefCount() gets its argument as void, and is useful
  * as free method in data structures that expect a 'void free_object(void*)'
  * prototype for the free method. */
+// 封装了decrRefCount，只是入参变为了void类型，方便其他函数调用
 void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
@@ -388,11 +424,13 @@ void decrRefCountVoid(void *o) {
  *    functionThatWillIncrementRefCount(obj);
  *    decrRefCount(obj);
  */
+// 重置对象的引用计数，此时不会释放对象内存。用法参见上面注释
 robj *resetRefCount(robj *obj) {
     obj->refcount = 0;
     return obj;
 }
 
+// 判断类型是否匹配，如果不匹配，则client输出错误
 int checkType(client *c, robj *o, int type) {
     if (o->type != type) {
         addReply(c,shared.wrongtypeerr);
@@ -401,6 +439,7 @@ int checkType(client *c, robj *o, int type) {
     return 0;
 }
 
+//判断一个字符串是否可以转变为long long类型的值，如果可以则返回0.
 int isSdsRepresentableAsLongLong(sds s, long long *llval) {
     return string2ll(s,sdslen(s),llval) ? C_OK : C_ERR;
 }

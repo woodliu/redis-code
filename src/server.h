@@ -96,7 +96,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
-#define OBJ_SHARED_INTEGERS 10000
+#define OBJ_SHARED_INTEGERS 10000 //server在启动时创建OBJ_SHARED_INTEGERS个(0~9999)共享的字符串类型的对象
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages.*/
 #define AOF_REWRITE_ITEMS_PER_CMD 64
@@ -366,7 +366,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define MAXMEMORY_FLAG_LFU (1<<1)
 #define MAXMEMORY_FLAG_ALLKEYS (1<<2)
 #define MAXMEMORY_FLAG_NO_SHARED_INTEGERS \
-    (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)
+    (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) /* LRU和LFU下都会按照一定规则淘汰对象，因此不能使用共享对象 */ 
 
 #define MAXMEMORY_VOLATILE_LRU ((0<<8)|MAXMEMORY_FLAG_LRU)
 #define MAXMEMORY_VOLATILE_LFU ((1<<8)|MAXMEMORY_FLAG_LFU)
@@ -1311,7 +1311,7 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
-    unsigned long long maxmemory;   /* Max number of memory bytes to use */
+    unsigned long long maxmemory;   /* Max number of memory bytes to use,值为0表示不作任何限制 */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
@@ -2161,7 +2161,7 @@ size_t getSlaveKeyWithExpireCount(void);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
-#define LFU_INIT_VAL 5
+#define LFU_INIT_VAL 5  //LFU下的初始计数为5
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);
 unsigned long LFUDecrAndReturn(robj *o);
