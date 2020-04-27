@@ -62,6 +62,15 @@
 
 #include "server.h"
 
+/* redis中的block操作如下，可以阻塞等待的数据类型为OBJ_LIST，OBJ_ZSET，OBJ_STREAM
+    1.BLPOP key1 [key2 ] timeout
+    移出并获取列表的第一个元素， 如果列表没有元素会阻塞列表直到等待超时或发现可弹出元素为止。
+    2.BRPOP key1 [key2 ] timeout
+    移出并获取列表的最后一个元素， 如果列表没有元素会阻塞列表直到等待超时或发现可弹出元素为止。
+    3.BRPOPLPUSH source destination timeout
+    从列表中弹出一个值，将弹出的元素插入到另外一个列表中并返回它； 如果列表没有元素会阻塞列表直到等待超时或发现可弹出元素为止。
+*/
+
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where);
 
 /* Block a client for the specific operation type. Once the CLIENT_BLOCKED

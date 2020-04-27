@@ -8,16 +8,6 @@
 
 - 正在进行：
 
-  [db.c](./src/db.c)
-
-  [networking.c](./src/networking.c)
-
-  [object.c](./src/object.c)
-
-  [evict.c](./src/evict.c)
-
-  [lazyfree.c](./src/lazyfree.c)
-
   [quicklist.c](./src/quicklist.c)/[quicklist.h](./src/quicklist.h)
 
   [ziplist.c](./src/ziplist.c)/[ziplist.h](./src/ziplist.h)
@@ -25,6 +15,18 @@
   [zset.c](./src/zset.c)
 
   [t_stream.c](./src/t_stream.c)
+
+  [rax.c](./src/rax.c)/[rax.h](./src/rax.h)
+
+  [db.c](./src/db.c)
+
+  [block.c](./src/block.c)
+
+  [networking.c](./src/networking.c)
+
+  [evict.c](./src/evict.c)
+
+  [lazyfree.c](./src/lazyfree.c)
 
 - 已完成：
 
@@ -35,3 +37,6 @@
   [sds.c](./src/sds.c)/[sds.h](./src/sds.h)/[adlist.c](./src/adlist.c)/[adlist.h](./src/adlist.h)
   
   [dict.c](./src/dict.c)/[dict.h](./src/dict.h)
+  
+  [object.c](./src/object.c)
+

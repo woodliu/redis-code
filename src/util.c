@@ -446,6 +446,7 @@ int string2ull(const char *s, unsigned long long *value) {
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
  * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */
+// 将一个字符串转换为long的数值。转换成功后将结果放到val中，并返回1，否则返回0
 int string2l(const char *s, size_t slen, long *lval) {
     long long llval;
 

@@ -96,7 +96,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
-#define OBJ_SHARED_INTEGERS 10000 //server在启动时创建OBJ_SHARED_INTEGERS个(0~9999)共享的字符串类型的对象
+#define OBJ_SHARED_INTEGERS 10000 //server在启动时创建OBJ_SHARED_INTEGERS个(0~9999)共享的使用OBJ_ENCODING_INT编码的字符串对象
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages.*/
 #define AOF_REWRITE_ITEMS_PER_CMD 64
@@ -443,8 +443,17 @@ typedef long long ustime_t; /* microsecond time type. */
 
 /* A redis object, that is a type able to hold a string / list / set */
 
-/* The actual Redis Object */
-#define OBJ_STRING 0    /* String object. */
+/* The actual Redis Object 
+    对象类型和编码对应关系如下：
+    OBJ_STRING:OBJ_ENCODING_EMBSTR, OBJ_ENCODING_RAW, OBJ_ENCODING_INT
+    OBJ_LIST  :OBJ_ENCODING_QUICKLIST, OBJ_ENCODING_ZIPLIST
+    OBJ_SET   :OBJ_ENCODING_HT, OBJ_ENCODING_INTSET
+    OBJ_HASH  :OBJ_ENCODING_ZIPLIST
+    OBJ_ZSET  :OBJ_ENCODING_SKIPLIST, OBJ_ENCODING_ZIPLIST
+    OBJ_STREAM:OBJ_ENCODING_STREAM
+    OBJ_MODULE
+*/
+#define OBJ_STRING 0    /* String object. sds支持的编码为OBJ_ENCODING_EMBSTR, OBJ_ENCODING_RAW，不包括OBJ_ENCODING_INT */ 
 #define OBJ_LIST 1      /* List object. */
 #define OBJ_SET 2       /* Set object. */
 #define OBJ_ZSET 3      /* Sorted set object. */
@@ -580,15 +589,15 @@ typedef struct RedisModuleDigest {
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
-#define OBJ_ENCODING_RAW 0     /* Raw representation */
+#define OBJ_ENCODING_RAW 0     /* Raw representation，表示没有任何编码类型的对象，初始化时使用，引用计数为1 */
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
-#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
+#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap 代码中没有用到过*/
+#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. 代码中没有用到过*/
 #define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
+#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding，字符串编码，适用于编码长度小于OBJ_ENCODING_EMBSTR_SIZE_LIMIT的字符串，节省空间 */
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 
@@ -596,17 +605,17 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru redis 对象的LRU的最大值*/
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU时钟分辨率，毫秒*/
 
-#define OBJ_SHARED_REFCOUNT INT_MAX
+#define OBJ_SHARED_REFCOUNT INT_MAX // 当引用计数为OBJ_SHARED_REFCOUNT时，则表示该对象为共享的，无法减少其引用计数
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4; //表示对象的类型，OBJ_STRING,OBJ_LIST,OBJ_SET,OBJ_HASH,OBJ_ZSET,OBJ_STREAM,OBJ_MODULE
+    unsigned encoding:4; // 对象的编码类型
     unsigned lru:LRU_BITS; /* 记录了每个redis对象最近一次被访问的时间，通过与server.lruclock的时间差参与LRU策略回收。
                             * 对象更新 LRU 时钟的地方有两个：a) 对象创建时；b) 对象被使用时
                             * LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
+    int refcount; // 对象的引用计数，当引用计数为0时会释放该对象。OBJ_SHARED_REFCOUNT表示共享对象
+    void *ptr; // 保存实际数据的指针，如字符串，列表等
 } robj;
 
 /* The a string name for an object's type as listed above
@@ -1755,6 +1764,7 @@ int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o);
+// sds字符串支持的编码为OBJ_ENCODING_RAW和OBJ_ENCODING_EMBSTR。 OBJ_ENCODING_INT 不使用sds编码，直接赋给o->ptr
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */

@@ -2233,6 +2233,7 @@ void createSharedObjects(void) {
     shared.zpopmax = createStringObject("ZPOPMAX",7);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
+    // 创建一个初始的共享对象，类型为字符串，编码为OBJ_ENCODING_INT。通过makeObjectShared将对象的引用计数变为OBJ_SHARED_REFCOUNT
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));

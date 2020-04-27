@@ -176,15 +176,20 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
+// 在redisDb->dict中添加一个新的key
 void dbAdd(redisDb *db, robj *key, robj *val) {
+    // 复制一份key，并将其保存到sds中
     sds copy = sdsdup(key->ptr);
+    // 在db->dict中添加一个dictEntry，[key,value]为[copy,val]
     int retval = dictAdd(db->dict, copy, val);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
+    // 如果对象类型为list，zset或stream，则在添加后需要同时判断是否需要添加到server的ready_keys中，以满足client阻塞等待数据的场景
     if (val->type == OBJ_LIST ||
         val->type == OBJ_ZSET ||
         val->type == OBJ_STREAM)
         signalKeyAsReady(db, key);
+    // 如果是cluster模式，则需要将新增的对象添加到server.cluster->slots_to_keys表示的redix树中，便于快速查找
     if (server.cluster_enabled) slotToKeyAdd(key);
 }
 
@@ -1621,29 +1626,38 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
+// redis cluster场景下，根据计算出的hash槽，将key添加到server.cluster->slots_to_keys表示的redix树中，用于快速查找。add为1表示新增，为0表示删除
 void slotToKeyUpdateKey(robj *key, int add) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
     unsigned char buf[64];
     unsigned char *indexed = buf;
     size_t keylen = sdslen(key->ptr);
-
+    
+    // 增加该哈希槽对应的key的计数
     server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
+    // keylen+2的原因是留出两个字节用于保存hashslot的信息，hashslot最大为16384，即2个char的大小
     if (keylen+2 > 64) indexed = zmalloc(keylen+2);
+    // 获取 hashslot的高8位和低8位
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
+    // 将key中的数据拷贝到indexed[2]开始的buf中
     memcpy(indexed+2,key->ptr,keylen);
+    // 根据标识符进行添加或删除
     if (add) {
         raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
     } else {
         raxRemove(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
     }
+    // 如果是堆内存，则需要释放。
     if (indexed != buf) zfree(indexed);
 }
 
+// 将redis对象添加到server.cluster->slots_to_keys表示的redix树中
 void slotToKeyAdd(robj *key) {
     slotToKeyUpdateKey(key,1);
 }
 
+// 将redis对象从server.cluster->slots_to_keys表示的redix树中移除
 void slotToKeyDel(robj *key) {
     slotToKeyUpdateKey(key,0);
 }

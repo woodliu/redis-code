@@ -146,8 +146,8 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
-    uint64_t slots_keys_count[CLUSTER_SLOTS];
-    rax *slots_to_keys;
+    uint64_t slots_keys_count[CLUSTER_SLOTS]; // 用于计算每个哈希槽拥有的key的数目，一共有16384个哈希槽
+    rax *slots_to_keys; // redix树，根据hash槽redis对象，用于快速查找
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
