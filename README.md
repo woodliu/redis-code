@@ -10,8 +10,6 @@
 
   [quicklist.c](./src/quicklist.c)/[quicklist.h](./src/quicklist.h)
 
-  [ziplist.c](./src/ziplist.c)/[ziplist.h](./src/ziplist.h)
-
   [zset.c](./src/zset.c)
 
   [t_stream.c](./src/t_stream.c)
@@ -34,7 +32,7 @@
 
   [connection.h](./src/connection.h)/[connection.c](./src/connection.c)/[ae_epoll.c](./src/ae_epoll.c)/[anet.c](./src/anet.c)
 
-  [sds.c](./src/sds.c)/[sds.h](./src/sds.h)/[adlist.c](./src/adlist.c)/[adlist.h](./src/adlist.h)
+  [sds.c](./src/sds.c)/[sds.h](./src/sds.h)/[adlist.c](./src/adlist.c)/[adlist.h](./src/adlist.h)/[ziplist.c](./src/ziplist.c)
   
   [dict.c](./src/dict.c)/[dict.h](./src/dict.h)
   
