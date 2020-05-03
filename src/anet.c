@@ -272,7 +272,7 @@ int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
 
 // 设置端口复用(须在bind操作前)，防止服务器重启后因为2MSL导致服务器无法快速恢复
 static int anetSetReuseAddr(char *err, int fd) {
-    int yes = 1;+
+    int yes = 1;
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {

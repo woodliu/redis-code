@@ -2106,7 +2106,7 @@ int clusterProcessPacket(clusterLink *link) {
         resetManualFailover();
         server.cluster->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
-        pauseClients(mstime()+(CLUSTER_MF_TIMEOUT*2));
+        pauseClients(mstime()+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT));
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
     } else if (type == CLUSTERMSG_TYPE_UPDATE) {
@@ -4191,10 +4191,16 @@ void clusterReplyMultiBulkSlots(client *c) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         int j = 0, start = -1;
+        int i, nested_elements = 0;
 
         /* Skip slaves (that are iterated when producing the output of their
          * master) and  masters not serving any slot. */
         if (!nodeIsMaster(node) || node->numslots == 0) continue;
+
+        for(i = 0; i < node->numslaves; i++) {
+            if (nodeFailed(node->slaves[i])) continue;
+            nested_elements++;
+        }
 
         for (j = 0; j < CLUSTER_SLOTS; j++) {
             int bit, i;
@@ -4203,8 +4209,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                 if (start == -1) start = j;
             }
             if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
-                int nested_elements = 3; /* slots (2) + master addr (1). */
-                void *nested_replylen = addReplyDeferredLen(c);
+                addReplyArrayLen(c, nested_elements + 3); /* slots (2) + master addr (1). */
 
                 if (bit && j == CLUSTER_SLOTS-1) j++;
 
@@ -4234,9 +4239,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                     addReplyBulkCString(c, node->slaves[i]->ip);
                     addReplyLongLong(c, node->slaves[i]->port);
                     addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
-                    nested_elements++;
                 }
-                setDeferredArrayLen(c, nested_replylen, nested_elements);
                 num_masters++;
             }
         }
@@ -4966,7 +4969,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,c->argv[1])) == NULL))
+        ((obj = rdbLoadObject(type,&payload,c->argv[1]->ptr)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -4982,7 +4985,7 @@ void restoreCommand(client *c) {
         setExpire(c,c->db,c->argv[1],ttl);
     }
     objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock,1000);
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",c->argv[1],c->db->id);
     addReply(c,shared.ok);
     server.dirty++;
@@ -5098,15 +5101,17 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password]
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password |
+ *         AUTH2 username password]
  *
  * On in the multiple keys form:
  *
- * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH password] KEYS key1
- * key2 ... keyN */
+ * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH password |
+ *         AUTH2 username password] KEYS key1 key2 ... keyN */
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
     int copy = 0, replace = 0, j;
+    char *username = NULL;
     char *password = NULL;
     long timeout;
     long dbid;
@@ -5124,7 +5129,7 @@ void migrateCommand(client *c) {
 
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
-        int moreargs = j < c->argc-1;
+        int moreargs = (c->argc-1) - j;
         if (!strcasecmp(c->argv[j]->ptr,"copy")) {
             copy = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"replace")) {
@@ -5136,6 +5141,13 @@ void migrateCommand(client *c) {
             }
             j++;
             password = c->argv[j]->ptr;
+        } else if (!strcasecmp(c->argv[j]->ptr,"auth2")) {
+            if (moreargs < 2) {
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+            username = c->argv[++j]->ptr;
+            password = c->argv[++j]->ptr;
         } else if (!strcasecmp(c->argv[j]->ptr,"keys")) {
             if (sdslen(c->argv[3]->ptr) != 0) {
                 addReplyError(c,
@@ -5196,8 +5208,13 @@ try_again:
 
     /* Authentication */
     if (password) {
-        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        int arity = username ? 3 : 2;
+        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',arity));
         serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"AUTH",4));
+        if (username) {
+            serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,username,
+                                 sdslen(username)));
+        }
         serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,password,
             sdslen(password)));
     }
@@ -5329,7 +5346,7 @@ try_again:
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
                 dbDelete(c->db,kv[j]);
-                signalModifiedKey(c->db,kv[j]);
+                signalModifiedKey(c,c->db,kv[j]);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",kv[j],c->db->id);
                 server.dirty++;
 

@@ -94,9 +94,10 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 #define likely(x) (x)
 #define unlikely(x) (x)
 #endif
-
+// 参考https://www.jianshu.com/p/d1138ad60ff6
 /* Create a new quicklist.
  * Free with quicklistRelease(). */
+// 初始化一个quicklist
 quicklist *quicklistCreate(void) {
     struct quicklist *quicklist;
 
@@ -110,7 +111,9 @@ quicklist *quicklistCreate(void) {
     return quicklist;
 }
 
-#define COMPRESS_MAX (1 << QL_COMP_BITS)
+// quicklist->compress的最大值
+#define COMPRESS_MAX ((1 << QL_COMP_BITS)-1)
+// 设置quicklist->compress的值，如果compress大于COMPRESS_MAX则设置为COMPRESS_MAX；小于0则设置为0
 void quicklistSetCompressDepth(quicklist *quicklist, int compress) {
     if (compress > COMPRESS_MAX) {
         compress = COMPRESS_MAX;
@@ -120,7 +123,7 @@ void quicklistSetCompressDepth(quicklist *quicklist, int compress) {
     quicklist->compress = compress;
 }
 
-#define FILL_MAX (1 << (QL_FILL_BITS-1))
+#define FILL_MAX ((1 << (QL_FILL_BITS-1))-1)
 void quicklistSetFill(quicklist *quicklist, int fill) {
     if (fill > FILL_MAX) {
         fill = FILL_MAX;

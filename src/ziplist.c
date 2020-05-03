@@ -328,8 +328,8 @@ typedef struct zlentry {
 unsigned int zipIntSize(unsigned char encoding) {
     switch(encoding) {
     case ZIP_INT_8B:  return 1;
-    case ZIP_INT_24B: return 3;
     case ZIP_INT_16B: return 2;
+    case ZIP_INT_24B: return 3;
     case ZIP_INT_32B: return 4;
     case ZIP_INT_64B: return 8;
     }

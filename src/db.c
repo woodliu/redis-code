@@ -190,7 +190,25 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
         val->type == OBJ_STREAM)
         signalKeyAsReady(db, key);
     // 如果是cluster模式，则需要将新增的对象添加到server.cluster->slots_to_keys表示的redix树中，便于快速查找
+    if (server.cluster_enabled) slotToKeyAdd(key->ptr);
+}
+
+/* This is a special version of dbAdd() that is used only when loading
+ * keys from the RDB file: the key is passed as an SDS string that is
+ * retained by the function (and not freed by the caller).
+ *
+ * Moreover this function will not abort if the key is already busy, to
+ * give more control to the caller, nor will signal the key as ready
+ * since it is not useful in this context.
+ *
+ * The function returns 1 if the key was added to the database, taking
+ * ownership of the SDS string, otherwise 0 is returned, and is up to the
+ * caller to free the SDS string. */
+int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
+    int retval = dictAdd(db->dict, key, val);
+    if (retval != DICT_OK) return 0;
     if (server.cluster_enabled) slotToKeyAdd(key);
+    return 1;
 }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -225,8 +243,10 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 3) The expire time of the key is reset (the key is made persistent),
  *    unless 'keepttl' is true.
  *
- * All the new keys in the database should be created via this interface. */
-void genericSetKey(redisDb *db, robj *key, robj *val, int keepttl) {
+ * All the new keys in the database should be created via this interface.
+ * The client 'c' argument may be set to NULL if the operation is performed
+ * in a context where there is no clear client performing the operation. */
+void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
@@ -234,12 +254,12 @@ void genericSetKey(redisDb *db, robj *key, robj *val, int keepttl) {
     }
     incrRefCount(val);
     if (!keepttl) removeExpire(db,key);
-    signalModifiedKey(db,key);
+    if (signal) signalModifiedKey(c,db,key);
 }
 
 /* Common case for genericSetKey() where the TTL is not retained. */
-void setKey(redisDb *db, robj *key, robj *val) {
-    genericSetKey(db,key,val,0);
+void setKey(client *c, redisDb *db, robj *key, robj *val) {
+    genericSetKey(c,db,key,val,0,1);
 }
 
 /* Return true if the specified key exists in the specified database.
@@ -293,7 +313,7 @@ int dbSyncDelete(redisDb *db, robj *key) {
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
@@ -454,9 +474,11 @@ long long dbTotalServerKeyCount() {
  * Every time a DB is flushed the function signalFlushDb() is called.
  *----------------------------------------------------------------------------*/
 
-void signalModifiedKey(redisDb *db, robj *key) {
+/* Note that the 'c' argument may be NULL if the key was modified out of
+ * a context of a client. */
+void signalModifiedKey(client *c, redisDb *db, robj *key) {
     touchWatchedKey(db,key);
-    trackingInvalidateKey(key);
+    trackingInvalidateKey(c,key);
 }
 
 void signalFlushedDb(int dbid) {
@@ -550,7 +572,7 @@ void delGenericCommand(client *c, int lazy) {
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
-            signalModifiedKey(c->db,c->argv[j]);
+            signalModifiedKey(c,c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);
             server.dirty++;
@@ -561,7 +583,7 @@ void delGenericCommand(client *c, int lazy) {
 }
 
 void delCommand(client *c) {
-    delGenericCommand(c,0);
+    delGenericCommand(c,server.lazyfree_lazy_user_del);
 }
 
 void unlinkCommand(client *c) {
@@ -990,8 +1012,8 @@ void renameGenericCommand(client *c, int nx) {
     dbAdd(c->db,c->argv[2],o);
     if (expire != -1) setExpire(c,c->db,c->argv[2],expire);
     dbDelete(c->db,c->argv[1]);
-    signalModifiedKey(c->db,c->argv[1]);
-    signalModifiedKey(c->db,c->argv[2]);
+    signalModifiedKey(c,c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -1059,8 +1081,8 @@ void moveCommand(client *c) {
 
     /* OK! key moved, free the entry in the source DB */
     dbDelete(src,c->argv[1]);
-    signalModifiedKey(src,c->argv[1]);
-    signalModifiedKey(dst,c->argv[1]);
+    signalModifiedKey(c,src,c->argv[1]);
+    signalModifiedKey(c,dst,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "move_from",c->argv[1],src->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -1304,7 +1326,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
         "expired",key,db->id);
     int retval = server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
                                                dbSyncDelete(db,key);
-    if (retval) signalModifiedKey(db,key);
+    if (retval) signalModifiedKey(NULL,db,key);
     return retval;
 }
 
@@ -1559,6 +1581,32 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     return keys;
 }
 
+/* LCS ... [KEYS <key1> <key2>] ... */
+int *lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
+{
+    int i;
+    int *keys = getKeysTempBuffer;
+    UNUSED(cmd);
+
+    /* We need to parse the options of the command in order to check for the
+     * "KEYS" argument before the "STRINGS" argument. */
+    for (i = 1; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        int moreargs = (argc-1) - i;
+
+        if (!strcasecmp(arg, "strings")) {
+            break;
+        } else if (!strcasecmp(arg, "keys") && moreargs >= 2) {
+            keys[0] = i+1;
+            keys[1] = i+2;
+            *numkeys = 2;
+            return keys;
+        }
+    }
+    *numkeys = 0;
+    return keys;
+}
+
 /* Helper function to extract keys from memory command.
  * MEMORY USAGE <key> */
 int *memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
@@ -1627,12 +1675,12 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
 // redis cluster场景下，根据计算出的hash槽，将key添加到server.cluster->slots_to_keys表示的redix树中，用于快速查找。add为1表示新增，为0表示删除
-void slotToKeyUpdateKey(robj *key, int add) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+void slotToKeyUpdateKey(sds key, int add) {
+    size_t keylen = sdslen(key);
+    unsigned int hashslot = keyHashSlot(key,keylen);
     unsigned char buf[64];
     unsigned char *indexed = buf;
-    size_t keylen = sdslen(key->ptr);
-    
+
     // 增加该哈希槽对应的key的计数
     server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
     // keylen+2的原因是留出两个字节用于保存hashslot的信息，hashslot最大为16384，即2个char的大小
@@ -1641,7 +1689,7 @@ void slotToKeyUpdateKey(robj *key, int add) {
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
     // 将key中的数据拷贝到indexed[2]开始的buf中
-    memcpy(indexed+2,key->ptr,keylen);
+    memcpy(indexed+2,key,keylen);
     // 根据标识符进行添加或删除
     if (add) {
         raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
@@ -1653,12 +1701,12 @@ void slotToKeyUpdateKey(robj *key, int add) {
 }
 
 // 将redis对象添加到server.cluster->slots_to_keys表示的redix树中
-void slotToKeyAdd(robj *key) {
+void slotToKeyAdd(sds key) {
     slotToKeyUpdateKey(key,1);
 }
 
 // 将redis对象从server.cluster->slots_to_keys表示的redix树中移除
-void slotToKeyDel(robj *key) {
+void slotToKeyDel(sds key) {
     slotToKeyUpdateKey(key,0);
 }
 
