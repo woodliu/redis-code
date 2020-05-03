@@ -1,4 +1,4 @@
-基于redis [6.0-rc3](https://github.com/antirez/redis/archive/6.0-rc3.tar.gz)。
+以更新至6.0.1
 
 参考：[Redis-Code](https://github.com/linyiqun/Redis-Code)
 
