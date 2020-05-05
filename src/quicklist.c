@@ -457,12 +457,15 @@ REDIS_STATIC void _quicklistInsertNodeAfter(quicklist *quicklist,
 }
 
 REDIS_STATIC int
+/*  判断sz的大小是否超过fill
+   */
 _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
                                                const int fill) {
     if (fill >= 0)
         return 0;
 
     size_t offset = (-fill) - 1;
+    // 如果offise的数值小于optimization_level的元素个数5
     if (offset < (sizeof(optimization_level) / sizeof(*optimization_level))) {
         if (sz <= optimization_level[offset]) {
             return 1;
@@ -483,12 +486,14 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
 
     int ziplist_overhead;
     /* size of previous offset */
+    // 当前一个entry长度小于254，prevlen需要使用1个字节，否则使用5个字节
     if (sz < 254)
         ziplist_overhead = 1;
     else
         ziplist_overhead = 5;
 
     /* size of forward offset */
+    // 计算本
     if (sz < 64)
         ziplist_overhead += 1;
     else if (likely(sz < 16384))
@@ -497,6 +502,7 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
         ziplist_overhead += 5;
 
     /* new_sz overestimates if 'sz' encodes to an integer type */
+    // 计算新的ziplist的长度
     unsigned int new_sz = node->sz + sz + ziplist_overhead;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
@@ -527,6 +533,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
         return 0;
 }
 
+// 更新quicklistNode的sz字段，即node的ziplist的字节长度
 #define quicklistNodeUpdateSz(node)                                            \
     do {                                                                       \
         (node)->sz = ziplistBlobLen((node)->zl);                               \
@@ -538,10 +545,12 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
  * Returns 1 if new head created. */
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
+
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
         quicklist->head->zl =
             ziplistPush(quicklist->head->zl, value, sz, ZIPLIST_HEAD);
+        // 更新node的ziplist的字节长度
         quicklistNodeUpdateSz(quicklist->head);
     } else {
         quicklistNode *node = quicklistCreateNode();
