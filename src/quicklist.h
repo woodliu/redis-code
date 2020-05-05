@@ -46,12 +46,12 @@
 typedef struct quicklistNode {
     struct quicklistNode *prev;
     struct quicklistNode *next;
-    unsigned char *zl;
-    unsigned int sz;             /* ziplist size in bytes */
-    unsigned int count : 16;     /* count of items in ziplist */
-    unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
+    unsigned char *zl;            /* quicklist中的ziplist，可以是压缩的也可以是未压缩的 */
+    unsigned int sz;             /* ziplist size in bytes，ziplist的总长，单位字节。表示未压缩的ziplist长度 */
+    unsigned int count : 16;     /* count of items in ziplist ，当前node的ziplist的entry数目*/
+    unsigned int encoding : 2;   /* RAW==1 or LZF==2，表示ziplist zl是否经过压缩，1为非压缩，2为压缩 */
     unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
-    unsigned int recompress : 1; /* was this node previous compressed? */
+    unsigned int recompress : 1; /* was this node previous compressed? 解压缩标记，当查看一个被压缩的数据时，需要暂时解压，标记此参数为1，之后再重新进行压缩 */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
     unsigned int extra : 10; /* more bits to steal for future usage */
 } quicklistNode;
@@ -62,8 +62,8 @@ typedef struct quicklistNode {
  * NOTE: uncompressed length is stored in quicklistNode->sz.
  * When quicklistNode->zl is compressed, node->zl points to a quicklistLZF */
 typedef struct quicklistLZF {
-    unsigned int sz; /* LZF size in bytes*/
-    char compressed[];
+    unsigned int sz; /* LZF size in bytes，表示compressed的长度*/
+    char compressed[]; /* 保存压缩后的quicklistNode->sz */
 } quicklistLZF;
 
 /* Bookmarks are padded with realloc at the end of of the quicklist struct.
@@ -105,10 +105,10 @@ typedef struct quicklistBookmark {
 typedef struct quicklist {
     quicklistNode *head;
     quicklistNode *tail;
-    unsigned long count;        /* total count of all entries in all ziplists */
-    unsigned long len;          /* number of quicklistNodes */
+    unsigned long count;        /* total count of all entries in all ziplists，ziplist中所有node的entry的总数 */
+    unsigned long len;          /* number of quicklistNodes，quiclist的node的个数 */
     int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
-    unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
+    unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off，两端没有被压缩的节点数，因此compress的最大值为len/2。compress之外的节点需要被压缩 */
     unsigned int bookmark_count: QL_BM_BITS;
     quicklistBookmark bookmarks[];
 } quicklist;
@@ -135,8 +135,8 @@ typedef struct quicklistEntry {
 #define QUICKLIST_TAIL -1
 
 /* quicklist node encodings */
-#define QUICKLIST_NODE_ENCODING_RAW 1
-#define QUICKLIST_NODE_ENCODING_LZF 2
+#define QUICKLIST_NODE_ENCODING_RAW 1 //表示未压缩的ziplist
+#define QUICKLIST_NODE_ENCODING_LZF 2 //表示已经经过压缩的ziplist
 
 /* quicklist compression disable */
 #define QUICKLIST_NOCOMPRESS 0

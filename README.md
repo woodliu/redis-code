@@ -1,4 +1,4 @@
-以更新至6.0.1
+已更新至6.0.1
 
 参考：[Redis-Code](https://github.com/linyiqun/Redis-Code)
 
